@@ -6,27 +6,31 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 
 	"github.com/primoPoker/server/internal/auth"
 	"github.com/primoPoker/server/internal/game"
+	"github.com/primoPoker/server/internal/metrics"
 	"github.com/primoPoker/server/internal/websocket"
 )
 
 // Handler contains all HTTP handlers
 type Handler struct {
-	gameManager *game.Manager
-	wsHub       *websocket.Hub
-	authService *auth.Service
+	gameManager    *game.Manager
+	wsHub          *websocket.Hub
+	authService    *auth.Service
+	metricsService *metrics.Service
 }
 
 // New creates a new handler instance
-func New(gameManager *game.Manager, wsHub *websocket.Hub, authService *auth.Service) *Handler {
+func New(gameManager *game.Manager, wsHub *websocket.Hub, authService *auth.Service, metricsService *metrics.Service) *Handler {
 	return &Handler{
-		gameManager: gameManager,
-		wsHub:       wsHub,
-		authService: authService,
+		gameManager:    gameManager,
+		wsHub:          wsHub,
+		authService:    authService,
+		metricsService: metricsService,
 	}
 }
 
@@ -325,6 +329,146 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		"user_id": userID,
 		"game_id": gameID,
 	}).Info("WebSocket connection established")
+}
+
+// GetPlayerMetrics handles getting comprehensive player metrics
+func (h *Handler) GetPlayerMetrics(w http.ResponseWriter, r *http.Request) {
+	userID := getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	// Parse user ID
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	// Parse optional since parameter for time period
+	var since *time.Time
+	if sinceParam := r.URL.Query().Get("since"); sinceParam != "" {
+		if parsedSince, err := time.Parse(time.RFC3339, sinceParam); err == nil {
+			since = &parsedSince
+		}
+	}
+
+	// Get player metrics
+	metrics, err := h.metricsService.GetPlayerMetrics(userUUID, since)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get player metrics")
+		h.writeError(w, http.StatusInternalServerError, "Failed to get player metrics")
+		return
+	}
+
+	h.writeSuccess(w, metrics)
+}
+
+// GetPlayerMetricsComparison handles getting player metrics comparison between periods
+func (h *Handler) GetPlayerMetricsComparison(w http.ResponseWriter, r *http.Request) {
+	userID := getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	// Parse user ID
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	// Parse time period parameters
+	period1StartStr := r.URL.Query().Get("period1_start")
+	period1EndStr := r.URL.Query().Get("period1_end")
+	period2StartStr := r.URL.Query().Get("period2_start")
+	period2EndStr := r.URL.Query().Get("period2_end")
+
+	if period1StartStr == "" || period1EndStr == "" || period2StartStr == "" || period2EndStr == "" {
+		h.writeError(w, http.StatusBadRequest, "Missing required time period parameters")
+		return
+	}
+
+	period1Start, err := time.Parse(time.RFC3339, period1StartStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid period1_start format")
+		return
+	}
+
+	period1End, err := time.Parse(time.RFC3339, period1EndStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid period1_end format")
+		return
+	}
+
+	period2Start, err := time.Parse(time.RFC3339, period2StartStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid period2_start format")
+		return
+	}
+
+	period2End, err := time.Parse(time.RFC3339, period2EndStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid period2_end format")
+		return
+	}
+
+	// Get metrics comparison
+	comparison, err := h.metricsService.GetPlayerMetricsComparison(userUUID, period1Start, period1End, period2Start, period2End)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get player metrics comparison")
+		h.writeError(w, http.StatusInternalServerError, "Failed to get player metrics comparison")
+		return
+	}
+
+	h.writeSuccess(w, comparison)
+}
+
+// GetUserMetrics handles getting metrics for a specific user (admin/self only)
+func (h *Handler) GetUserMetrics(w http.ResponseWriter, r *http.Request) {
+	requestingUserID := getUserIDFromContext(r)
+	if requestingUserID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	// Get target user ID from URL
+	vars := mux.Vars(r)
+	targetUserID := vars["userId"]
+
+	// Parse target user ID
+	targetUUID, err := uuid.Parse(targetUserID)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+
+	// For now allow users to view their own metrics
+	// In the future, could add admin permissions for viewing other users
+	if requestingUserID != targetUserID {
+		h.writeError(w, http.StatusForbidden, "You can only view your own metrics")
+		return
+	}
+
+	// Parse optional since parameter
+	var since *time.Time
+	if sinceParam := r.URL.Query().Get("since"); sinceParam != "" {
+		if parsedSince, err := time.Parse(time.RFC3339, sinceParam); err == nil {
+			since = &parsedSince
+		}
+	}
+
+	// Get player metrics
+	metrics, err := h.metricsService.GetPlayerMetrics(targetUUID, since)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get user metrics")
+		h.writeError(w, http.StatusInternalServerError, "Failed to get user metrics")
+		return
+	}
+
+	h.writeSuccess(w, metrics)
 }
 
 // ProcessGameAction handles game actions received via WebSocket or HTTP

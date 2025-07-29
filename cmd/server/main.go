@@ -18,6 +18,7 @@ import (
 	"github.com/primoPoker/server/internal/database"
 	"github.com/primoPoker/server/internal/game"
 	"github.com/primoPoker/server/internal/handlers"
+	"github.com/primoPoker/server/internal/metrics"
 	"github.com/primoPoker/server/internal/middleware"
 	"github.com/primoPoker/server/internal/repository"
 	"github.com/primoPoker/server/internal/websocket"
@@ -66,10 +67,13 @@ func main() {
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(dbService.DB)
 	_ = repository.NewGameRepository(dbService.DB)     // Will be used later
-	_ = repository.NewHandHistoryRepository(dbService.DB) // Will be used later
+	handHistoryRepo := repository.NewHandHistoryRepository(dbService.DB)
 
 	// Initialize auth service
 	authService := auth.NewService(cfg.JWTSecret, userRepo)
+
+	// Initialize metrics service
+	metricsService := metrics.NewService(handHistoryRepo, userRepo)
 
 	// Initialize game manager
 	gameManager := game.NewManager()
@@ -79,7 +83,7 @@ func main() {
 	go wsHub.Run()
 
 	// Initialize handlers
-	handler := handlers.New(gameManager, wsHub, authService)
+	handler := handlers.New(gameManager, wsHub, authService, metricsService)
 
 	// Setup router
 	router := setupRouter(handler, authService)
@@ -166,6 +170,11 @@ func setupRouter(handler *handlers.Handler, authService *auth.Service) *mux.Rout
 	protected.HandleFunc("/games/{gameId}", handler.GetGame).Methods("GET")
 	protected.HandleFunc("/games/{gameId}/join", handler.JoinGame).Methods("POST")
 	protected.HandleFunc("/games/{gameId}/leave", handler.LeaveGame).Methods("POST")
+
+	// Metrics routes
+	protected.HandleFunc("/metrics", handler.GetPlayerMetrics).Methods("GET")
+	protected.HandleFunc("/metrics/comparison", handler.GetPlayerMetricsComparison).Methods("GET")
+	protected.HandleFunc("/users/{userId}/metrics", handler.GetUserMetrics).Methods("GET")
 
 	// WebSocket endpoint
 	router.HandleFunc("/ws", handler.HandleWebSocket)
