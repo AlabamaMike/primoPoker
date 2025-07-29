@@ -11,12 +11,21 @@ terraform {
       source  = "hashicorp/google-beta"
       version = "~> 5.0"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.9"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.1"
+    }
   }
   
-  backend "gcs" {
-    bucket = "primopoker-terraform-state"
-    prefix = "terraform/state"
-  }
+  # Comment out backend for initial deployment
+  # backend "gcs" {
+  #   bucket = "primopoker-terraform-state"
+  #   prefix = "terraform/state"
+  # }
 }
 
 # Variables
@@ -72,10 +81,12 @@ resource "google_project_service" "required_apis" {
     "redis.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
+    "servicenetworking.googleapis.com",
     "sql-component.googleapis.com",
     "sqladmin.googleapis.com",
     "storage-api.googleapis.com",
     "storage-component.googleapis.com",
+    "vpcaccess.googleapis.com",  # Added missing VPC Access API
   ])
 
   project = var.project_id
@@ -83,6 +94,18 @@ resource "google_project_service" "required_apis" {
 
   disable_dependent_services = false
   disable_on_destroy        = false
+
+  # Add explicit timeouts for API enablement
+  timeouts {
+    create = "10m"
+    update = "10m"
+  }
+}
+
+# Add delay after API enablement
+resource "time_sleep" "wait_for_apis" {
+  depends_on = [google_project_service.required_apis]
+  create_duration = "60s"
 }
 
 # Service Account for the application
@@ -91,6 +114,8 @@ resource "google_service_account" "app_service_account" {
   display_name = "PrimoPoker Application Service Account"
   description  = "Service account for PrimoPoker application"
   project      = var.project_id
+
+  depends_on = [time_sleep.wait_for_apis]
 }
 
 # IAM bindings for the service account
@@ -359,9 +384,14 @@ resource "random_password" "jwt_secret" {
   special = true
 }
 
+# Generate random suffix for unique bucket names
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
 # Cloud Storage bucket for static assets
 resource "google_storage_bucket" "static_assets" {
-  name     = "${var.project_id}-${local.service_name}-static"
+  name     = "${var.project_id}-${local.service_name}-static-${random_id.bucket_suffix.hex}"
   location = var.region
   project  = var.project_id
 
@@ -392,7 +422,7 @@ resource "google_storage_bucket" "static_assets" {
 
 # Cloud Storage bucket for Terraform state
 resource "google_storage_bucket" "terraform_state" {
-  name     = "${var.project_id}-terraform-state"
+  name     = "${var.project_id}-terraform-state-${random_id.bucket_suffix.hex}"
   location = var.region
   project  = var.project_id
 

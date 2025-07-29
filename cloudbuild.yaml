@@ -1,11 +1,11 @@
 steps:
   # Build the Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/primopoker:$COMMIT_SHA', '.']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/primopoker:latest', '.']
   
   # Push the image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/primopoker:$COMMIT_SHA']
+    args: ['push', 'gcr.io/$PROJECT_ID/primopoker:latest']
   
   # Deploy to Cloud Run
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -13,8 +13,8 @@ steps:
       - 'run'
       - 'deploy'
       - 'primopoker'
-      - '--image=gcr.io/$PROJECT_ID/primopoker:$COMMIT_SHA'
-      - '--region=us-central1'
+      - '--image=gcr.io/$PROJECT_ID/primopoker:latest'
+      - '--region=us-west2'
       - '--platform=managed'
       - '--allow-unauthenticated'
       - '--port=8080'
@@ -24,10 +24,12 @@ steps:
       - '--concurrency=1000'
       - '--timeout=3600'
       - '--set-env-vars=ENVIRONMENT=production'
+      - '--vpc-connector=primopoker-connector'
+      - '--service-account=primopoker-app@primopoker.iam.gserviceaccount.com'
 
 # Store the image in Container Registry
 images:
-  - 'gcr.io/$PROJECT_ID/primopoker:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/primopoker:latest'
 
 # Build options
 options:

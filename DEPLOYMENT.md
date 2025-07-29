@@ -1,5 +1,15 @@
 # 🚀 **PrimoPoker GCP Deployment Guide**
 
+**✅ DEPLOYMENT STATUS: SUCCESSFULLY DEPLOYED**
+
+**🌐 Live Application URL:** https://primopoker-404481868494.us-west2.run.app
+
+**📊 Health Check:** https://primopoker-404481868494.us-west2.run.app/health
+
+**🎯 API Base URL:** https://primopoker-404481868494.us-west2.run.app/api/v1
+
+---
+
 This guide walks you through deploying PrimoPoker to Google Cloud Platform using our cloud-native architecture.
 
 ## **📋 Prerequisites**
@@ -49,6 +59,44 @@ chmod +x scripts/deploy.sh
 chmod +x scripts/setup-monitoring.sh
 ./scripts/setup-monitoring.sh
 ```
+
+## **🎉 Deployment Complete!**
+
+### **Deployed Infrastructure**
+- **🚀 Cloud Run Service:** `primopoker` (us-west2)
+- **💾 Cloud SQL Database:** `primopoker-db-prod` (PostgreSQL 15)  
+- **🔴 Redis Cache:** `primopoker-redis-prod` (1GB Memorystore)
+- **🌐 VPC Network:** `primopoker-vpc` with private connectivity
+- **🔐 Secret Manager:** JWT secrets and database credentials
+- **📮 Pub/Sub:** Game events and notifications
+- **📊 Cloud Storage:** Static assets and Terraform state
+
+### **🧪 API Testing**
+
+#### **Health Check**
+```bash
+curl https://primopoker-404481868494.us-west2.run.app/health
+```
+
+#### **User Registration**
+```bash
+curl -X POST https://primopoker-404481868494.us-west2.run.app/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","email":"test@example.com","password":"password123"}'
+```
+
+#### **List Games (Protected Endpoint)**
+```bash
+# Use the token from registration response
+curl -H "Authorization: Bearer <JWT_TOKEN>" \
+  https://primopoker-404481868494.us-west2.run.app/api/v1/games
+```
+
+### **📊 Monitoring & Observability**
+- **Cloud Run Metrics:** Automatically collected
+- **Database Monitoring:** Cloud SQL insights enabled
+- **Application Logs:** Available in Cloud Logging
+- **Custom Metrics:** Player and game statistics
 
 ## **📊 Manual Deployment Steps**
 
@@ -286,6 +334,7 @@ gcloud run deploy primopoker --image gcr.io/$PROJECT_ID/primopoker:v1.1.0 --regi
 - Maintenance windows automatically scheduled
 
 ## **📞 Support**
+Call ya mama!
 
 ### **Getting Help**
 1. Check application logs first
