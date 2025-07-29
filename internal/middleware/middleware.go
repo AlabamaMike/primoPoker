@@ -131,41 +131,41 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// JWT authentication middleware
-func JWTAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authService := auth.NewService()
+// JWTAuthMiddleware creates a JWT authentication middleware with the given auth service
+func JWTAuthMiddleware(authService *auth.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Get token from Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, "Authorization header required", http.StatusUnauthorized)
+				return
+			}
 
-		// Get token from Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
-			return
-		}
+			// Extract token from "Bearer <token>"
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+				return
+			}
 
-		// Extract token from "Bearer <token>"
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
-			return
-		}
+			token := parts[1]
 
-		token := parts[1]
+			// Validate token
+			user, err := authService.ValidateToken(token)
+			if err != nil {
+				http.Error(w, "Invalid token", http.StatusUnauthorized)
+				return
+			}
 
-		// Validate token
-		user, err := authService.ValidateToken(token)
-		if err != nil {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
-			return
-		}
+			// Add user info to request context
+			ctx := context.WithValue(r.Context(), "user_id", user.ID)
+			ctx = context.WithValue(ctx, "username", user.Username)
+			r = r.WithContext(ctx)
 
-		// Add user info to request context
-		ctx := context.WithValue(r.Context(), "user_id", user.ID)
-		ctx = context.WithValue(ctx, "username", user.Username)
-		r = r.WithContext(ctx)
-
-		next.ServeHTTP(w, r)
-	})
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // Cleanup rate limiters periodically to prevent memory leaks

@@ -22,11 +22,11 @@ type Handler struct {
 }
 
 // New creates a new handler instance
-func New(gameManager *game.Manager, wsHub *websocket.Hub) *Handler {
+func New(gameManager *game.Manager, wsHub *websocket.Hub, authService *auth.Service) *Handler {
 	return &Handler{
 		gameManager: gameManager,
 		wsHub:       wsHub,
-		authService: auth.NewService(),
+		authService: authService,
 	}
 }
 
@@ -88,7 +88,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate JWT token
-	token, err := h.authService.GenerateToken(user.ID, user.Username)
+	token, err := h.authService.GenerateToken(user)
 	if err != nil {
 		h.writeError(w, http.StatusInternalServerError, "Failed to generate token")
 		return
@@ -121,7 +121,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate JWT token
-	token, err := h.authService.GenerateToken(user.ID, user.Username)
+	token, err := h.authService.GenerateToken(user)
 	if err != nil {
 		h.writeError(w, http.StatusInternalServerError, "Failed to generate token")
 		return

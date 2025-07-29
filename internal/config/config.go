@@ -15,8 +15,20 @@ type Config struct {
 	RedisURL     string
 	Environment  string
 	Server       ServerConfig
+	Database     DatabaseConfig
 	Game         GameConfig
 	Security     SecurityConfig
+}
+
+// DatabaseConfig holds database-related configuration
+type DatabaseConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	DBName   string
+	SSLMode  string
+	TimeZone string
 }
 
 // ServerConfig holds server-specific configuration
@@ -64,6 +76,16 @@ func Load() *Config {
 			ReadTimeout:  getDurationEnv("SERVER_READ_TIMEOUT", 15*time.Second),
 			WriteTimeout: getDurationEnv("SERVER_WRITE_TIMEOUT", 15*time.Second),
 			IdleTimeout:  getDurationEnv("SERVER_IDLE_TIMEOUT", 60*time.Second),
+		},
+		
+		Database: DatabaseConfig{
+			Host:     getEnv("DB_HOST", "localhost"),
+			Port:     getIntEnv("DB_PORT", 5432),
+			User:     getEnv("DB_USER", "postgres"),
+			Password: getEnv("DB_PASSWORD", ""),
+			DBName:   getEnv("DB_NAME", "primopoker"),
+			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+			TimeZone: getEnv("DB_TIMEZONE", "UTC"),
 		},
 		
 		Game: GameConfig{

@@ -1,46 +1,42 @@
 package auth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
-)
 
-// User represents a user in the system
-type User struct {
-	ID       string    `json:"id"`
-	Username string    `json:"username"`
-	Email    string    `json:"email"`
-	Created  time.Time `json:"created"`
-}
+	"github.com/primoPoker/server/internal/models"
+	"github.com/primoPoker/server/internal/repository"
+)
 
 // Service handles authentication operations
 type Service struct {
 	jwtSecret string
-	users     map[string]*User // In-memory store for demo - use database in production
-	passwords map[string]string // username -> hashed password
+	userRepo  *repository.UserRepository
 }
 
 // NewService creates a new authentication service
-func NewService() *Service {
+func NewService(jwtSecret string, userRepo *repository.UserRepository) *Service {
 	return &Service{
-		jwtSecret: "your-super-secret-jwt-key-change-this-in-production",
-		users:     make(map[string]*User),
-		passwords: make(map[string]string),
+		jwtSecret: jwtSecret,
+		userRepo:  userRepo,
 	}
 }
 
 // CreateUser creates a new user
-func (s *Service) CreateUser(username, password, email string) (*User, error) {
+func (s *Service) CreateUser(username, password, email string) (*models.User, error) {
 	// Check if user already exists
-	for _, user := range s.users {
-		if user.Username == username || user.Email == email {
-			return nil, errors.New("user already exists")
-		}
+	existingUser, _ := s.userRepo.GetByUsername(username)
+	if existingUser != nil {
+		return nil, errors.New("username already exists")
+	}
+	
+	existingUser, _ = s.userRepo.GetByEmail(email)
+	if existingUser != nil {
+		return nil, errors.New("email already exists")
 	}
 
 	// Validate password strength
@@ -54,52 +50,46 @@ func (s *Service) CreateUser(username, password, email string) (*User, error) {
 		return nil, err
 	}
 
-	// Generate user ID
-	userID := generateUserID()
-
 	// Create user
-	user := &User{
-		ID:       userID,
-		Username: username,
-		Email:    email,
-		Created:  time.Now(),
+	user := &models.User{
+		ID:           uuid.New(),
+		Username:     username,
+		Email:        email,
+		PasswordHash: string(hashedPassword),
 	}
 
-	// Store user and password
-	s.users[userID] = user
-	s.passwords[username] = string(hashedPassword)
+	// Save user to database
+	if err := s.userRepo.Create(user); err != nil {
+		return nil, err
+	}
 
 	return user, nil
 }
 
 // AuthenticateUser authenticates a user with username and password
-func (s *Service) AuthenticateUser(username, password string) (*User, error) {
-	// Get hashed password
-	hashedPassword, exists := s.passwords[username]
-	if !exists {
+func (s *Service) AuthenticateUser(username, password string) (*models.User, error) {
+	// Get user by username
+	user, err := s.userRepo.GetByUsername(username)
+	if err != nil {
+		return nil, errors.New("invalid credentials")
+	}
+	if user == nil {
 		return nil, errors.New("invalid credentials")
 	}
 
 	// Verify password
-	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, errors.New("invalid credentials")
 	}
 
-	// Find user
-	for _, user := range s.users {
-		if user.Username == username {
-			return user, nil
-		}
-	}
-
-	return nil, errors.New("user not found")
+	return user, nil
 }
 
 // GenerateToken generates a JWT token for a user
-func (s *Service) GenerateToken(userID, username string) (string, error) {
+func (s *Service) GenerateToken(user *models.User) (string, error) {
 	claims := jwt.MapClaims{
-		"user_id":  userID,
-		"username": username,
+		"user_id":  user.ID.String(),
+		"username": user.Username,
 		"exp":      time.Now().Add(24 * time.Hour).Unix(), // 24 hours
 		"iat":      time.Now().Unix(),
 	}
@@ -109,7 +99,7 @@ func (s *Service) GenerateToken(userID, username string) (string, error) {
 }
 
 // ValidateToken validates a JWT token and returns user information
-func (s *Service) ValidateToken(tokenString string) (*User, error) {
+func (s *Service) ValidateToken(tokenString string) (*models.User, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("invalid signing method")
@@ -130,13 +120,18 @@ func (s *Service) ValidateToken(tokenString string) (*User, error) {
 		return nil, errors.New("invalid token claims")
 	}
 
-	userID, ok := claims["user_id"].(string)
+	userIDStr, ok := claims["user_id"].(string)
 	if !ok {
 		return nil, errors.New("invalid user_id in token")
 	}
 
-	user, exists := s.users[userID]
-	if !exists {
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return nil, errors.New("invalid user_id format")
+	}
+
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
 
@@ -152,21 +147,14 @@ func (s *Service) RefreshToken(refreshToken string) (string, error) {
 		return "", err
 	}
 
-	return s.GenerateToken(user.ID, user.Username)
+	return s.GenerateToken(user)
 }
 
 // GetUser returns a user by ID
-func (s *Service) GetUser(userID string) (*User, error) {
-	user, exists := s.users[userID]
-	if !exists {
+func (s *Service) GetUser(userID uuid.UUID) (*models.User, error) {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
 	return user, nil
-}
-
-// generateUserID generates a random user ID
-func generateUserID() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
 }

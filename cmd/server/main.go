@@ -13,10 +13,13 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 
+	"github.com/primoPoker/server/internal/auth"
 	"github.com/primoPoker/server/internal/config"
+	"github.com/primoPoker/server/internal/database"
 	"github.com/primoPoker/server/internal/game"
 	"github.com/primoPoker/server/internal/handlers"
 	"github.com/primoPoker/server/internal/middleware"
+	"github.com/primoPoker/server/internal/repository"
 	"github.com/primoPoker/server/internal/websocket"
 )
 
@@ -34,6 +37,40 @@ func main() {
 
 	logrus.Info("Starting PrimoPoker server...")
 
+	// Initialize database
+	dbConfig := database.Config{
+		Host:     cfg.Database.Host,
+		Port:     cfg.Database.Port,
+		User:     cfg.Database.User,
+		Password: cfg.Database.Password,
+		DBName:   cfg.Database.DBName,
+		SSLMode:  cfg.Database.SSLMode,
+		TimeZone: cfg.Database.TimeZone,
+	}
+	
+	dbService, err := database.NewDB(dbConfig)
+	if err != nil {
+		logrus.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer func() {
+		if sqlDB, err := dbService.DB.DB(); err == nil {
+			sqlDB.Close()
+		}
+	}()
+
+	// Run database migrations
+	if err := dbService.AutoMigrate(); err != nil {
+		logrus.Fatalf("Failed to run database migrations: %v", err)
+	}
+
+	// Initialize repositories
+	userRepo := repository.NewUserRepository(dbService.DB)
+	_ = repository.NewGameRepository(dbService.DB)     // Will be used later
+	_ = repository.NewHandHistoryRepository(dbService.DB) // Will be used later
+
+	// Initialize auth service
+	authService := auth.NewService(cfg.JWTSecret, userRepo)
+
 	// Initialize game manager
 	gameManager := game.NewManager()
 
@@ -42,10 +79,10 @@ func main() {
 	go wsHub.Run()
 
 	// Initialize handlers
-	handler := handlers.New(gameManager, wsHub)
+	handler := handlers.New(gameManager, wsHub, authService)
 
 	// Setup router
-	router := setupRouter(handler)
+	router := setupRouter(handler, authService)
 
 	// Create HTTP server
 	server := &http.Server{
@@ -103,7 +140,7 @@ func setupLogger(level string) {
 	}
 }
 
-func setupRouter(handler *handlers.Handler) *mux.Router {
+func setupRouter(handler *handlers.Handler, authService *auth.Service) *mux.Router {
 	router := mux.NewRouter()
 
 	// Apply middleware
@@ -122,7 +159,7 @@ func setupRouter(handler *handlers.Handler) *mux.Router {
 
 	// Protected game routes
 	protected := api.PathPrefix("").Subrouter()
-	protected.Use(middleware.JWTAuth)
+	protected.Use(middleware.JWTAuthMiddleware(authService))
 	
 	protected.HandleFunc("/games", handler.ListGames).Methods("GET")
 	protected.HandleFunc("/games", handler.CreateGame).Methods("POST")
