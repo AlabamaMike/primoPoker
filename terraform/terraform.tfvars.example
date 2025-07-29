@@ -1,0 +1,12 @@
+# terraform/terraform.tfvars.example
+# Copy this file to terraform.tfvars and fill in your values
+
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+environment = "prod"
+
+# Generate a strong password for the database
+db_password = "your-secure-database-password"
+
+# Optional: Override default values
+# Additional configuration can be added here

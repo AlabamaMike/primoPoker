@@ -1,9 +1,14 @@
 package config
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/primoPoker/server/internal/gcp"
 )
 
 // Config holds all configuration for the application
@@ -14,21 +19,35 @@ type Config struct {
 	DatabaseURL  string
 	RedisURL     string
 	Environment  string
+	ProjectID    string
 	Server       ServerConfig
 	Database     DatabaseConfig
 	Game         GameConfig
 	Security     SecurityConfig
+	GCP          GCPConfig
+}
+
+// GCPConfig holds Google Cloud Platform specific configuration
+type GCPConfig struct {
+	ProjectID          string
+	Region             string
+	PubSubTopic        string
+	SecretManagerPath  string
+	CloudSQLInstance   string
+	MemorystoreRedis   string
 }
 
 // DatabaseConfig holds database-related configuration
 type DatabaseConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
-	TimeZone string
+	Host          string
+	Port          int
+	User          string
+	Password      string
+	DBName        string
+	SSLMode       string
+	TimeZone      string
+	SocketPath    string // For Cloud SQL Unix sockets
+	InstanceName  string // Cloud SQL instance name
 }
 
 // ServerConfig holds server-specific configuration
@@ -64,13 +83,14 @@ type SecurityConfig struct {
 
 // Load returns a new Config instance with values from environment variables
 func Load() *Config {
-	return &Config{
+	cfg := &Config{
 		Port:        getEnv("PORT", "8080"),
 		LogLevel:    getEnv("LOG_LEVEL", "info"),
 		JWTSecret:   getEnv("JWT_SECRET", "your-super-secret-jwt-key-change-this-in-production"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://localhost/primopoker?sslmode=disable"),
 		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379"),
 		Environment: getEnv("ENVIRONMENT", "development"),
+		ProjectID:   getEnv("GOOGLE_CLOUD_PROJECT", ""),
 		
 		Server: ServerConfig{
 			ReadTimeout:  getDurationEnv("SERVER_READ_TIMEOUT", 15*time.Second),
@@ -79,13 +99,24 @@ func Load() *Config {
 		},
 		
 		Database: DatabaseConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getIntEnv("DB_PORT", 5432),
-			User:     getEnv("DB_USER", "postgres"),
-			Password: getEnv("DB_PASSWORD", ""),
-			DBName:   getEnv("DB_NAME", "primopoker"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
-			TimeZone: getEnv("DB_TIMEZONE", "UTC"),
+			Host:         getEnv("DB_HOST", "localhost"),
+			Port:         getIntEnv("DB_PORT", 5432),
+			User:         getEnv("DB_USER", "postgres"),
+			Password:     getEnv("DB_PASSWORD", ""),
+			DBName:       getEnv("DB_NAME", "primopoker"),
+			SSLMode:      getEnv("DB_SSLMODE", "disable"),
+			TimeZone:     getEnv("DB_TIMEZONE", "UTC"),
+			SocketPath:   getEnv("DB_SOCKET_PATH", ""), // For Cloud SQL Unix sockets
+			InstanceName: getEnv("CLOUD_SQL_INSTANCE", ""),
+		},
+		
+		GCP: GCPConfig{
+			ProjectID:          getEnv("GOOGLE_CLOUD_PROJECT", ""),
+			Region:             getEnv("GOOGLE_CLOUD_REGION", "us-central1"),
+			PubSubTopic:        getEnv("PUBSUB_TOPIC", "poker-events"),
+			SecretManagerPath:  getEnv("SECRET_MANAGER_PATH", "projects/$PROJECT_ID/secrets"),
+			CloudSQLInstance:   getEnv("CLOUD_SQL_INSTANCE", ""),
+			MemorystoreRedis:   getEnv("MEMORYSTORE_REDIS", ""),
 		},
 		
 		Game: GameConfig{
@@ -110,6 +141,18 @@ func Load() *Config {
 			RateLimitPerMinute:  getIntEnv("RATE_LIMIT_PER_MINUTE", 100),
 		},
 	}
+	
+	// Load secrets from Secret Manager in production
+	if cfg.Environment == "production" && cfg.GCP.ProjectID != "" {
+		loadSecretsFromGCP(cfg)
+	}
+	
+	// Override database connection for Cloud SQL
+	if cfg.GCP.CloudSQLInstance != "" {
+		setupCloudSQLConnection(cfg)
+	}
+	
+	return cfg
 }
 
 // Helper functions to get environment variables with defaults
@@ -145,4 +188,52 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+// loadSecretsFromGCP loads secrets from Google Cloud Secret Manager
+func loadSecretsFromGCP(cfg *Config) {
+	ctx := context.Background()
+	secretsClient, err := gcp.NewSecretManager(ctx, cfg.GCP.ProjectID)
+	if err != nil {
+		// Log error but don't fail - fallback to environment variables
+		fmt.Printf("Warning: Failed to create secrets client: %v\n", err)
+		return
+	}
+	defer secretsClient.Close()
+
+	// Load JWT secret
+	if jwtSecret, err := secretsClient.GetSecret(ctx, "primopoker-jwt-secret"); err == nil {
+		cfg.JWTSecret = jwtSecret
+	}
+
+	// Load database password
+	if dbPassword, err := secretsClient.GetSecret(ctx, "primopoker-db-password"); err == nil {
+		cfg.Database.Password = dbPassword
+	}
+}
+
+// setupCloudSQLConnection configures database connection for Cloud SQL
+func setupCloudSQLConnection(cfg *Config) {
+	// Set up Unix socket path for Cloud SQL
+	if cfg.Database.SocketPath == "" {
+		// Default Cloud SQL Unix socket path
+		cfg.Database.SocketPath = fmt.Sprintf("/cloudsql/%s", cfg.GCP.CloudSQLInstance)
+	}
+	
+	// Override SSL mode for Cloud SQL Unix socket connections
+	if cfg.Database.SocketPath != "" {
+		cfg.Database.SSLMode = "disable" // Unix sockets don't need SSL
+	}
+	
+	// Use TCP connection if no Unix socket is available
+	if cfg.Database.Host == "" && cfg.Database.SocketPath == "" {
+		// Parse Cloud SQL instance name to get host
+		parts := strings.Split(cfg.GCP.CloudSQLInstance, ":")
+		if len(parts) >= 3 {
+			// Format: project:region:instance
+			cfg.Database.Host = fmt.Sprintf("%s:%s:%s", parts[0], parts[1], parts[2])
+			cfg.Database.Port = 5432
+			cfg.Database.SSLMode = "require"
+		}
+	}
 }

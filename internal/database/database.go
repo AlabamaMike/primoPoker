@@ -17,27 +17,50 @@ type DB struct {
 
 // Config holds database configuration
 type Config struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
-	TimeZone string
+	Host               string
+	Port               int
+	User               string
+	Password           string
+	DBName             string
+	SSLMode            string
+	TimeZone           string
+	// Cloud SQL specific fields
+	SocketPath         string // Unix socket path for Cloud SQL
+	ConnectionName     string // Cloud SQL connection name
+	MaxOpenConns       int    // Maximum open connections
+	MaxIdleConns       int    // Maximum idle connections
+	ConnMaxLifetime    time.Duration // Connection maximum lifetime
+	ConnMaxIdleTime    time.Duration // Connection maximum idle time
 }
 
 // NewDB creates a new database connection
 func NewDB(config Config) (*DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%d sslmode=%s TimeZone=%s",
-		config.Host,
-		config.User,
-		config.Password,
-		config.DBName,
-		config.Port,
-		config.SSLMode,
-		config.TimeZone,
-	)
+	var dsn string
+	
+	// Check if we're using Cloud SQL Unix socket
+	if config.SocketPath != "" {
+		// Unix socket connection for Cloud SQL
+		dsn = fmt.Sprintf(
+			"host=%s user=%s password=%s dbname=%s sslmode=disable TimeZone=%s",
+			config.SocketPath,
+			config.User,
+			config.Password,
+			config.DBName,
+			config.TimeZone,
+		)
+	} else {
+		// Standard TCP connection
+		dsn = fmt.Sprintf(
+			"host=%s user=%s password=%s dbname=%s port=%d sslmode=%s TimeZone=%s",
+			config.Host,
+			config.User,
+			config.Password,
+			config.DBName,
+			config.Port,
+			config.SSLMode,
+			config.TimeZone,
+		)
+	}
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
@@ -55,10 +78,31 @@ func NewDB(config Config) (*DB, error) {
 		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 
-	// Configure connection pool
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	// Configure connection pool with Cloud SQL optimizations
+	maxOpenConns := config.MaxOpenConns
+	if maxOpenConns == 0 {
+		maxOpenConns = 25 // Cloud SQL default limit consideration
+	}
+	
+	maxIdleConns := config.MaxIdleConns
+	if maxIdleConns == 0 {
+		maxIdleConns = 5 // Keep some connections warm
+	}
+	
+	connMaxLifetime := config.ConnMaxLifetime
+	if connMaxLifetime == 0 {
+		connMaxLifetime = time.Hour
+	}
+	
+	connMaxIdleTime := config.ConnMaxIdleTime
+	if connMaxIdleTime == 0 {
+		connMaxIdleTime = 10 * time.Minute
+	}
+
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
 
 	return &DB{db}, nil
 }

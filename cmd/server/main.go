@@ -40,13 +40,19 @@ func main() {
 
 	// Initialize database
 	dbConfig := database.Config{
-		Host:     cfg.Database.Host,
-		Port:     cfg.Database.Port,
-		User:     cfg.Database.User,
-		Password: cfg.Database.Password,
-		DBName:   cfg.Database.DBName,
-		SSLMode:  cfg.Database.SSLMode,
-		TimeZone: cfg.Database.TimeZone,
+		Host:               cfg.Database.Host,
+		Port:               cfg.Database.Port,
+		User:               cfg.Database.User,
+		Password:           cfg.Database.Password,
+		DBName:             cfg.Database.DBName,
+		SSLMode:            cfg.Database.SSLMode,
+		TimeZone:           cfg.Database.TimeZone,
+		SocketPath:         cfg.Database.SocketPath,    // Cloud SQL Unix socket
+		ConnectionName:     cfg.Database.InstanceName,  // Cloud SQL connection name
+		MaxOpenConns:       25,                         // Cloud SQL optimized
+		MaxIdleConns:       5,                          // Keep connections warm
+		ConnMaxLifetime:    time.Hour,                  // Connection lifetime
+		ConnMaxIdleTime:    10 * time.Minute,          // Idle timeout
 	}
 	
 	dbService, err := database.NewDB(dbConfig)
