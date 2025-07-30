@@ -72,6 +72,139 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// APIDocumentation handles the API base URL and provides API documentation
+func (h *Handler) APIDocumentation(w http.ResponseWriter, r *http.Request) {
+	apiDoc := map[string]interface{}{
+		"name":        "PrimoPoker API",
+		"version":     "v1",
+		"description": "RESTful API for PrimoPoker - Multiplayer Online Texas Hold'em Poker",
+		"base_url":    "/api/v1",
+		"timestamp":   time.Now(),
+		"endpoints": map[string]interface{}{
+			"authentication": map[string]interface{}{
+				"POST /api/v1/auth/login": map[string]interface{}{
+					"description": "User login",
+					"body": map[string]string{
+						"username": "string",
+						"password": "string",
+					},
+					"response": "JWT token and user information",
+				},
+				"POST /api/v1/auth/register": map[string]interface{}{
+					"description": "User registration",
+					"body": map[string]string{
+						"username": "string",
+						"password": "string",
+						"email":    "string",
+					},
+					"response": "JWT token and user information",
+				},
+				"POST /api/v1/auth/refresh": map[string]interface{}{
+					"description": "Refresh JWT token",
+					"body": map[string]string{
+						"refresh_token": "string",
+					},
+					"response": "New JWT token",
+				},
+			},
+			"games": map[string]interface{}{
+				"GET /api/v1/games": map[string]interface{}{
+					"description":    "List all active games",
+					"authentication": "Bearer token required",
+					"response":       "Array of game objects",
+				},
+				"POST /api/v1/games": map[string]interface{}{
+					"description":    "Create a new game",
+					"authentication": "Bearer token required",
+					"body": map[string]string{
+						"name":        "string",
+						"small_blind": "number",
+						"big_blind":   "number",
+						"buy_in":      "number",
+						"max_players": "number",
+					},
+					"response": "Created game object",
+				},
+				"GET /api/v1/games/{gameId}": map[string]interface{}{
+					"description":    "Get specific game details",
+					"authentication": "Bearer token required",
+					"response":       "Game state object",
+				},
+				"POST /api/v1/games/{gameId}/join": map[string]interface{}{
+					"description":    "Join a game",
+					"authentication": "Bearer token required",
+					"body": map[string]string{
+						"buy_in": "number",
+					},
+					"response": "Updated game state",
+				},
+				"POST /api/v1/games/{gameId}/leave": map[string]interface{}{
+					"description":    "Leave a game",
+					"authentication": "Bearer token required",
+					"response":       "Success message",
+				},
+			},
+			"metrics": map[string]interface{}{
+				"GET /api/v1/metrics": map[string]interface{}{
+					"description":    "Get player metrics for authenticated user",
+					"authentication": "Bearer token required",
+					"query_params": map[string]string{
+						"since": "ISO 8601 timestamp (optional)",
+					},
+					"response": "Player statistics and metrics",
+				},
+				"GET /api/v1/metrics/comparison": map[string]interface{}{
+					"description":    "Compare player metrics between time periods",
+					"authentication": "Bearer token required",
+					"query_params": map[string]string{
+						"period1_start": "ISO 8601 timestamp",
+						"period1_end":   "ISO 8601 timestamp",
+						"period2_start": "ISO 8601 timestamp",
+						"period2_end":   "ISO 8601 timestamp",
+					},
+					"response": "Comparative metrics analysis",
+				},
+				"GET /api/v1/users/{userId}/metrics": map[string]interface{}{
+					"description":    "Get metrics for specific user (self only)",
+					"authentication": "Bearer token required",
+					"query_params": map[string]string{
+						"since": "ISO 8601 timestamp (optional)",
+					},
+					"response": "User statistics and metrics",
+				},
+			},
+			"websocket": map[string]interface{}{
+				"GET /ws": map[string]interface{}{
+					"description":  "WebSocket connection for real-time game updates",
+					"protocol":     "WebSocket",
+					"query_params": map[string]string{
+						"user_id": "string (required)",
+						"game_id": "string (optional)",
+					},
+					"response": "Real-time game state updates",
+				},
+			},
+			"health": map[string]interface{}{
+				"GET /health": map[string]interface{}{
+					"description": "Health check endpoint",
+					"response":    "Server health status",
+				},
+			},
+		},
+		"authentication": map[string]interface{}{
+			"type":        "Bearer Token",
+			"header":      "Authorization: Bearer <JWT_TOKEN>",
+			"description": "Most endpoints require JWT authentication. Get token from /auth/login or /auth/register",
+		},
+		"websocket_usage": map[string]interface{}{
+			"description": "For real-time gameplay, connect to WebSocket endpoint after authentication",
+			"url":         "ws://host/ws?user_id=<USER_ID>&game_id=<GAME_ID>",
+		},
+	}
+
+	h.writeSuccess(w, apiDoc)
+}
+
 // Login handles user login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
