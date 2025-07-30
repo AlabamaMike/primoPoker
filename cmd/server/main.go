@@ -162,6 +162,10 @@ func setupRouter(handler *handlers.Handler, authService *auth.Service) *mux.Rout
 	// API routes
 	api := router.PathPrefix("/api/v1").Subrouter()
 	
+	// API documentation endpoint - shows available endpoints when accessing /api/v1
+	api.HandleFunc("", handler.APIDocumentation).Methods("GET")
+	api.HandleFunc("/", handler.APIDocumentation).Methods("GET")
+	
 	// Authentication routes
 	api.HandleFunc("/auth/login", handler.Login).Methods("POST")
 	api.HandleFunc("/auth/register", handler.Register).Methods("POST")
