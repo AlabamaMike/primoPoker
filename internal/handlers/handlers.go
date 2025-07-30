@@ -45,7 +45,10 @@ type Response struct {
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		// Log the error but don't change the response since headers are already sent
+		logrus.WithError(err).Error("Failed to encode JSON response")
+	}
 }
 
 // writeError writes an error response

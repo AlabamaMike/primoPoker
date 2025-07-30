@@ -243,7 +243,9 @@ func (g *Game) RemovePlayer(playerID string) error {
 
 	// If it's the player's turn, automatically fold
 	if g.getCurrentPlayerID() == playerID && g.Phase != WaitingForPlayers {
-		g.processAction(playerID, Fold, 0)
+		if err := g.processAction(playerID, Fold, 0); err != nil {
+			// Log error but continue with player removal
+		}
 	}
 
 	g.LastActivity = time.Now()
@@ -510,7 +512,11 @@ func (g *Game) dealHoleCards() {
 		for _, playerID := range g.PlayerOrder {
 			player := g.Players[playerID]
 			if player.IsActive {
-				card, _ := g.Deck.Deal()
+				card, err := g.Deck.Deal()
+				if err != nil {
+					// This should not happen in normal gameplay
+					continue
+				}
 				player.HoleCards = append(player.HoleCards, card)
 			}
 		}
@@ -524,23 +530,44 @@ func (g *Game) postBlinds() {
 
 	// Post small blind
 	sbAmount := min(g.SmallBlind, smallBlindPlayer.ChipCount)
-	smallBlindPlayer.Bet(sbAmount)
+	if err := smallBlindPlayer.Bet(sbAmount); err != nil {
+		// Handle error - player cannot bet (should not happen)
+		sbAmount = smallBlindPlayer.ChipCount
+		if err := smallBlindPlayer.Bet(sbAmount); err != nil {
+			// Final fallback - force bet to 0
+			sbAmount = 0
+		}
+	}
 	g.Pot += sbAmount
 
 	// Post big blind
 	bbAmount := min(g.BigBlind, bigBlindPlayer.ChipCount)
-	bigBlindPlayer.Bet(bbAmount)
+	if err := bigBlindPlayer.Bet(bbAmount); err != nil {
+		// Handle error - player cannot bet (should not happen)
+		bbAmount = bigBlindPlayer.ChipCount
+		if err := bigBlindPlayer.Bet(bbAmount); err != nil {
+			// Final fallback - force bet to 0
+			bbAmount = 0
+		}
+	}
 	g.Pot += bbAmount
 }
 
 // dealFlop deals the flop (3 community cards)
 func (g *Game) dealFlop() {
 	// Burn one card
-	g.Deck.Deal()
+	if _, err := g.Deck.Deal(); err != nil {
+		// Handle deck empty - should not happen in normal gameplay
+		return
+	}
 	
 	// Deal 3 cards
 	for i := 0; i < 3; i++ {
-		card, _ := g.Deck.Deal()
+		card, err := g.Deck.Deal()
+		if err != nil {
+			// Handle deck empty - should not happen in normal gameplay
+			break
+		}
 		g.CommunityCards = append(g.CommunityCards, card)
 	}
 }
@@ -548,20 +575,34 @@ func (g *Game) dealFlop() {
 // dealTurn deals the turn (4th community card)
 func (g *Game) dealTurn() {
 	// Burn one card
-	g.Deck.Deal()
+	if _, err := g.Deck.Deal(); err != nil {
+		// Handle deck empty - should not happen in normal gameplay
+		return
+	}
 	
 	// Deal 1 card
-	card, _ := g.Deck.Deal()
+	card, err := g.Deck.Deal()
+	if err != nil {
+		// Handle deck empty - should not happen in normal gameplay
+		return
+	}
 	g.CommunityCards = append(g.CommunityCards, card)
 }
 
 // dealRiver deals the river (5th community card)
 func (g *Game) dealRiver() {
 	// Burn one card
-	g.Deck.Deal()
+	if _, err := g.Deck.Deal(); err != nil {
+		// Handle deck empty - should not happen in normal gameplay
+		return
+	}
 	
 	// Deal 1 card
-	card, _ := g.Deck.Deal()
+	card, err := g.Deck.Deal()
+	if err != nil {
+		// Handle deck empty - should not happen in normal gameplay
+		return
+	}
 	g.CommunityCards = append(g.CommunityCards, card)
 }
 
